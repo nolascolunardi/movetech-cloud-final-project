@@ -1,8 +1,7 @@
-# move-tech-cloud-application-comp-3
+# move-tech-cloud-application
 
-Ponto de partida da **Competência 3 — Desenvolvimento e Operação de Aplicações (DevOps)**.
-
-Este repositório é um template. Use-o como base para criar o seu próprio repositório e trabalhar na competência.
+API de micro e-commerce com pedidos e itens, construída em Python com FastAPI —
+versionada, conteinerizada e publicada na **Magalu Cloud**.
 
 > Parte do curso **Move Tech** — Magalu × Prósper Digital Skills  
 > Formação em Cloud Computing para iniciantes
@@ -11,15 +10,27 @@ Este repositório é um template. Use-o como base para criar o seu próprio repo
 
 ## O que tem aqui
 
-Uma API simples de micro e-commerce com pedidos e itens, construída em Python com FastAPI.
+Uma API de pedidos e itens que persiste os dados em banco relacional via SQLAlchemy,
+expõe métricas no formato Prometheus e roda em um cluster Kubernetes na Magalu Cloud,
+com deploy automatizado pelo GitHub Actions.
 
-A aplicação armazena os dados em memória. Ainda não tem deploy na nuvem — isso é exatamente o que você vai fazer nesta competência.
+| Camada | Tecnologia |
+|--------|-----------|
+| API | FastAPI + Pydantic |
+| Persistência | SQLAlchemy 2.0 (PostgreSQL em produção, SQLite local) |
+| Container | Docker (`python:3.11-slim`) |
+| Orquestração | Kubernetes (`k8s/app.yaml`) |
+| Observabilidade | Prometheus (ServiceMonitor) + logs em JSON |
+| CI/CD | GitHub Actions (`.github/workflows/deploy.yml`) |
 
 ### Endpoints disponíveis
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| `GET` | `/health` | Verifica se a API está no ar |
+| `GET` | `/health` | Verifica a API e a conexão com o banco |
+| `GET` | `/stats` | Contadores de pedidos e itens |
+| `GET` | `/metrics` | Métricas no formato Prometheus |
+| `GET` | `/docs` | Documentação interativa (Scalar) |
 | `POST` | `/orders` | Cria um novo pedido |
 | `GET` | `/orders` | Lista todos os pedidos |
 | `GET` | `/orders/{id}` | Retorna um pedido com seus itens |
@@ -27,22 +38,22 @@ A aplicação armazena os dados em memória. Ainda não tem deploy na nuvem — 
 | `POST` | `/orders/{id}/items` | Adiciona um item ao pedido |
 | `GET` | `/orders/{id}/items` | Lista os itens de um pedido |
 
+A estrutura das tabelas está documentada em [`docs/data-model.md`](docs/data-model.md).
+
 ---
 
-## O que você vai fazer nesta competência
+## Entregas da Competência 3
 
-Ao final da Competência 3, a aplicação deve estar **versionada, conteinerizada e publicada na Magalu Cloud**.
-
-- [ ] Publicar a imagem no Container Registry da Magalu Cloud
-- [ ] Criar o manifest Kubernetes (`k8s/app.yaml`)
-- [ ] Fazer o deploy no cluster Kubernetes da Magalu Cloud
-- [ ] Configurar o pipeline de CI/CD no GitHub Actions
+- [x] Publicar a imagem no Container Registry da Magalu Cloud
+- [x] Criar o manifest Kubernetes (`k8s/app.yaml`)
+- [x] Fazer o deploy no cluster Kubernetes da Magalu Cloud
+- [x] Configurar o pipeline de CI/CD no GitHub Actions
 
 ---
 
 ## O Dockerfile
 
-O repositório já inclui um `Dockerfile` pronto. Ele define como a aplicação é empacotada em uma imagem Docker:
+O `Dockerfile` define como a aplicação é empacotada em uma imagem Docker:
 
 ```dockerfile
 FROM python:3.11-slim          # Imagem base com Python 3.11
@@ -62,7 +73,8 @@ EXPOSE 8000                    # Porta que a aplicação vai escutar
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-O `docker-compose.yml` usa esse Dockerfile para construir e rodar a aplicação localmente. Na nuvem, o pipeline faz o mesmo — constrói a imagem e publica no registry.
+O `docker-compose.yml` usa esse Dockerfile para construir e rodar a aplicação localmente.
+Na nuvem, o pipeline faz o mesmo — constrói a imagem e publica no registry.
 
 > **Referência:** [Dockerfile — Documentação oficial Docker](https://docs.docker.com/reference/dockerfile/)
 
@@ -70,7 +82,8 @@ O `docker-compose.yml` usa esse Dockerfile para construir e rodar a aplicação 
 
 ## Como rodar localmente
 
-**Pré-requisito:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado (Mac e Windows) ou [Docker Engine](https://docs.docker.com/engine/install/) (Linux).
+**Pré-requisito:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado
+(Mac e Windows) ou [Docker Engine](https://docs.docker.com/engine/install/) (Linux).
 
 ```bash
 docker compose up --build
@@ -78,12 +91,49 @@ docker compose up --build
 
 Acesse a documentação interativa em: http://localhost:8000/docs
 
+Sem a variável `DATABASE_URL` definida, a aplicação usa SQLite em arquivo (`orders.db`).
+Para apontar para um PostgreSQL:
+
+```bash
+DATABASE_URL=postgresql+psycopg2://usuario:senha@host:5432/pedidos docker compose up --build
+```
+
+### Testes
+
+```bash
+poetry install
+poetry run pytest
+```
+
 ---
 
-## Próxima etapa
+## Deploy
 
-Ao concluir esta competência, a solução de referência será publicada em:  
-[move-tech-cloud-application-comp-4](https://github.com/move-tech-cloud-computing/move-tech-cloud-application-comp-4)
+O workflow `Deploy` (acionado manualmente em **Actions → Deploy → Run workflow**):
+
+1. roda os testes com pytest;
+2. constrói a imagem e publica no Container Registry da Magalu Cloud;
+3. cria o Secret `db-secret` com a URL do banco;
+4. aplica os manifests em `k8s/` e acompanha o rollout.
+
+Secrets necessários no repositório:
+
+| Secret | Para que serve |
+|--------|----------------|
+| `MGC_REGISTRY_USER` / `MGC_REGISTRY_PASSWORD` | Login no Container Registry |
+| `MGC_REGISTRY_NAME` | Nome do registry (compõe o caminho da imagem) |
+| `MGC_KUBECONFIG` | Acesso ao cluster Kubernetes |
+| `DATABASE_URL` | URL de conexão com o PostgreSQL |
+
+---
+
+## Observabilidade
+
+- **Métricas:** o `prometheus-fastapi-instrumentator` expõe `/metrics`, e o
+  `k8s/servicemonitor.yaml` registra o serviço no kube-prometheus-stack.
+- **Logs:** saída em JSON (`JsonFormatter` em `app/main.py`), pronta para coleta.
+- **Health checks:** `/health` valida a conexão com o banco e alimenta as probes
+  de liveness e readiness do Deployment.
 
 ---
 
